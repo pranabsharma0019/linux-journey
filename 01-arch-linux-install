@@ -1,0 +1,191 @@
+# Arch Linux Installation from Scratch
+
+## What it is
+Manual Arch Linux installation with no installer,
+no GUI assistance. Every decision made manually
+through terminal.
+
+## My Setup
+- Disk: SSD solo boot, no dual boot
+- Partition table: GPT using gdisk
+- Filesystem: ext4
+- Bootloader: GRUB
+- Desktop: KDE Plasma
+- AUR helper: yay
+
+## Partition Layout
+
+| Partition | Size | Purpose |
+|-----------|------|---------|
+| /boot/efi | 512mb | EFI system partition |
+| swap | 8gb | Overflow and hibernation |
+| / | Remaining disk | Root filesystem |
+
+## Why GPT over MBR
+gdisk creates GPT partition tables.
+GPT is the modern standard — supports disks
+over 2TB, supports UEFI, more reliable than
+legacy MBR. No reason to use MBR on modern hardware.
+
+## Why swap equals RAM
+8gb RAM means 8gb swap.
+This ratio allows full hibernation —
+entire RAM contents written to swap on shutdown
+and restored on boot. System resumes exactly
+where you left it.
+
+## Installation Steps
+
+### 1. Boot into Arch ISO
+```bash
+# verify boot mode is UEFI
+ls /sys/firmware/efi/efivars
+# if directory exists you are in UEFI mode
+```
+
+### 2. Connect to internet
+```bash
+iwctl
+device list
+station wlan0 scan
+station wlan0 get-networks
+station wlan0 connect YOURNETWORK
+exit
+
+# verify connection
+ping archlinux.org
+```
+
+### 3. Partition the disk
+```bash
+# identify your disk
+lsblk
+
+# open gdisk
+gdisk /dev/sda
+
+# inside gdisk:
+# n → new partition
+# partition 1 → +512M → type EF00 (EFI)
+# partition 2 → +8G   → type 8200 (swap)
+# partition 3 → rest  → type 8300 (Linux)
+# w → write and exit
+```
+
+### 4. Format partitions
+```bash
+# format EFI partition
+mkfs.fat -F32 /dev/sda1
+
+# format swap
+mkswap /dev/sda2
+swapon /dev/sda2
+
+# format root
+mkfs.ext4 /dev/sda3
+```
+
+### 5. Mount partitions
+```bash
+mount /dev/sda3 /mnt
+mkdir -p /mnt/boot/efi
+mount /dev/sda1 /mnt/boot/efi
+```
+
+### 6. Install base system
+```bash
+pacstrap /mnt base base-devel linux linux-firmware
+```
+
+### 7. Generate fstab
+```bash
+genfstab -U /mnt >> /mnt/etc/fstab
+# -U uses UUIDs not device names
+# safer across reboots
+```
+
+### 8. Enter the system
+```bash
+arch-chroot /mnt
+```
+
+### 9. System configuration
+```bash
+# timezone
+ln -sf /usr/share/zoneinfo/Asia/Kolkata /etc/localtime
+hwclock --systohc
+
+# locale
+echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
+# hostname
+echo "archbox" > /etc/hostname
+
+# root password
+passwd
+```
+
+### 10. Install GRUB
+```bash
+pacman -S grub efibootmgr
+grub-install --target=x86_64-efi \
+             --efi-directory=/boot/efi \
+             --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
+```
+
+### 11. Install KDE Plasma
+```bash
+pacman -S plasma kde-applications
+pacman -S sddm
+systemctl enable sddm
+systemctl enable NetworkManager
+```
+
+### 12. Create user
+```bash
+useradd -m -G wheel username
+passwd username
+
+# enable sudo for wheel group
+EDITOR=nano visudo
+# uncomment %wheel ALL=(ALL) ALL
+```
+
+### 13. Install yay AUR helper
+```bash
+# as your user not root
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si
+```
+
+### 14. Reboot
+```bash
+exit
+umount -R /mnt
+reboot
+```
+
+## What I Learned
+
+- GPT is not just a partition table, it is
+  a complete rethinking of how disks are addressed
+- fstab using UUIDs means partitions mount correctly
+  even if disk order changes on boot
+- arch-chroot changes root context completely,
+  you are operating inside the new system
+  before it even boots
+- GRUB needs to know EFI directory at install time
+  not just at boot time
+- swap sized to RAM is not optional if you
+  want hibernation to actually work
+
+## Why This Matters
+Anyone can install Ubuntu.
+Manual Arch installation means you understand
+what an operating system actually needs to exist.
+Bootloader, filesystem, base packages, locale,
+users — nothing is hidden, nothing is automatic.
